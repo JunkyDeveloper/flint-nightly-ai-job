@@ -25,7 +25,7 @@ The worker's last message:
 $message
 -----
 
-Reply with ONLY one JSON object: {"verdict": "...", "answer": "..."}
+You may read files (e.g. the tests in `./tests/`) to check the worker's claims. Keep it short: a few reads at most. Then reply with ONLY one JSON object: {"verdict": "...", "answer": "..."}
 
 Verdicts:
 - `APPROVE` (plan phase): the plan follows the rules. `answer` = short notes or corrections for implementation.

@@ -38,6 +38,13 @@ class Result:
 ClaudeFn = Callable[[str, list[str], float], Result]
 
 
+def supervisor_args() -> list[str]:
+    """Haiku may look at files (read-only) but needs room to answer after that: with --max-turns 1 a
+    single tool call ends the run with error_max_turns and an empty result (seen 2026-10-10).
+    `--tools ""` (no tools at all) hangs in 2.1.296, so read-only tools it is."""
+    return ["--model", env_str("SUPERVISOR_MODEL", "haiku"), "--tools", "Read,Glob,Grep", "--max-turns", "6"]
+
+
 def prompt(name: str, **values: str) -> str:
     return Template((PROMPTS / f"{name}.md").read_text()).safe_substitute(values)
 
@@ -54,7 +61,9 @@ def claude(text: str, args: list[str], timeout: float) -> Result:
         data = json.loads(proc.stdout)
     except json.JSONDecodeError:
         return Result(text=(proc.stdout + "\n" + proc.stderr).strip(), is_error=True)
-    return Result(text=str(data.get("result", "")), session_id=data.get("session_id", ""),
+    # An empty result (e.g. error_max_turns) would be undiagnosable in the report: show the subtype.
+    text = str(data.get("result") or f"[empty result: {data.get('subtype', '?')}]")
+    return Result(text=text, session_id=data.get("session_id", ""),
                   is_error=bool(data.get("is_error")) or proc.returncode != 0,
                   cost=float(data.get("total_cost_usd") or 0),
                   models=sorted((data.get("modelUsage") or {}).keys()))
@@ -94,7 +103,7 @@ def ping(claude_fn: ClaudeFn = claude) -> Result:
 def review_groups(candidates: dict[str, list[str]], claude_fn: ClaudeFn = claude) -> dict | None:
     """One-time Haiku review of the computed grouping. Caller validates the answer."""
     r = claude_fn(prompt("grouping", candidates=json.dumps(candidates, indent=1)),
-                  ["--model", env_str("SUPERVISOR_MODEL", "haiku"), "--max-turns", "1"], 600)
+                  supervisor_args(), 600)
     if hit_limit(r):
         raise UsageLimit(r.text)
     return first_json(r.text)
@@ -134,7 +143,7 @@ def check_interrupted(marker: dict, files: list[str], claude_fn: ClaudeFn = clau
                          interruptions=str(marker.get("interruptions", 1)), started=marker.get("started", "?"),
                          files="\n".join(f"- {f}" for f in files) or "(none)",
                          message=str(marker.get("last_message", ""))[-6000:]),
-                  ["--model", env_str("SUPERVISOR_MODEL", "haiku"), "--max-turns", "1"], 300)
+                  supervisor_args(), 300)
     if hit_limit(r):
         raise UsageLimit(r.text)
     obj = first_json(r.text) or {}
@@ -154,7 +163,6 @@ def work_on_subject(subject: str, members: list[str], budget_s: float,
     deadline = clock() + budget_s
     plan_model = env_str("PLAN_MODEL", "opus")
     exec_model = env_str("EXEC_MODEL", "sonnet")
-    sup_model = env_str("SUPERVISOR_MODEL", "haiku")
     full = ", ".join(f"minecraft:{m}" for m in members)
     out = Outcome(status="gave_up")
     session = ""
@@ -189,9 +197,10 @@ def work_on_subject(subject: str, members: list[str], budget_s: float,
                         flintcli="/usr/local/bin/flintcli", mc_src=str(MC_SRC), server=MC_SERVER),
                  ["--model", plan_model, "--permission-mode", "bypassPermissions", *PLAN_READ_ONLY])
     for _ in range(env_int("MAX_ROUNDS", 10)):
-        sup = call(prompt("supervisor", phase=phase, subject=subject, members=full, message=r.text[-12000:]),
-                   ["--model", sup_model, "--max-turns", "1"], worker=False)
-        verdict, answer = parse_verdict(sup.text)
+        sup_prompt = prompt("supervisor", phase=phase, subject=subject, members=full, message=r.text[-12000:])
+        verdict, answer = parse_verdict(call(sup_prompt, supervisor_args(), worker=False).text)
+        if verdict == "STUCK" and answer.startswith("unparsable"):     # one retry before giving up
+            verdict, answer = parse_verdict(call(sup_prompt, supervisor_args(), worker=False).text)
         if phase == "plan" and verdict == "DONE":
             verdict = "APPROVE"
         if phase == "exec" and verdict == "APPROVE":

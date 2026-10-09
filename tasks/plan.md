@@ -353,6 +353,7 @@ Stack + timer on the server.
 | D30 | Vanilla tags read from `/mc-src/data/minecraft/tags` (the decompiled 26.2 source) instead of a copy in `config/`: smaller repo, can't drift from the source |
 | D31 | Interrupted runs: runner keeps `/state/current.json` (subject, phase, session, last message) while a subject runs; kept on SIGTERM / night deadline / usage limit. Sandbox + Claude sessions in named volumes. Next run: Haiku (`interrupted.md`) decides RESUME (same session, `resume.md`) or RESTART; that subject goes first; gave_up after 3 interruptions |
 | D32 | Fix rounds: the runner's independent checks (flintcli re-run, `typos`, `flint-validate` per file) send failures back into the worker's session (`fix.md`, ≤ `FIX_ROUNDS`=2, within the subject budget); only then are tests dropped. Worker prompts also require `flint-validate`. Found on the first real run: 1 of 14 tests failed `cleanup region must contain the origin`, which flintcli doesn't check |
+| D33 | Supervisor (Haiku) calls: `--tools Read,Glob,Grep --max-turns 6` (was `--max-turns 1`: one tool call → `error_max_turns`, empty result → subject given up, seen 2026-10-10). `--tools ""` hangs in CLI 2.1.296. One retry on unparsable output; empty results show their subtype in the report |
 
 ## Claude auth with Pro in Docker (D17, was P3)
 

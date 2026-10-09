@@ -36,6 +36,16 @@ class ClaudeCallTests(unittest.TestCase):
         self.assertEqual((r.text, r.session_id, r.models), ("ok", "s1", ["claude-haiku-5-5"]))
 
 
+class EmptyResultTests(unittest.TestCase):
+    def test_empty_result_shows_subtype(self):
+        fake = mock.Mock(return_value=mock.Mock(returncode=1, stderr="",
+                         stdout='{"subtype": "error_max_turns", "is_error": true, "result": null}'))
+        with mock.patch.object(agents, "run", fake):
+            r = agents.claude("p", [], 60)
+        self.assertEqual(r.text, "[empty result: error_max_turns]")
+        self.assertTrue(r.is_error)
+
+
 class ParseTests(unittest.TestCase):
     def test_verdict_in_prose_and_fences(self):
         self.assertEqual(agents.parse_verdict('```json\n{"verdict": "approve", "answer": "go"}\n```'),
@@ -109,6 +119,16 @@ class LoopTests(unittest.TestCase):
         self.assertIn("stopped", calls[0][0])                       # resume prompt, not the fresh worker prompt
         self.assertEqual(out.status, "done")
         self.assertEqual(seen[0], ("w9", "exec"))
+
+    def test_empty_supervisor_answer_is_retried_once(self):
+        fn, calls = scripted([
+            Result("plan", session_id="w1"), Result("[empty result: error_max_turns]", is_error=True),
+            sup("UNSUPPORTED", "entities")])
+        out = agents.work_on_subject("x", ["x"], 3600, claude_fn=fn)
+        self.assertEqual(out.status, "unsupported")
+        sup_args = calls[1][1]
+        self.assertIn("--tools", sup_args)
+        self.assertNotEqual(sup_args[sup_args.index("--max-turns") + 1], "1")
 
     def test_time_budget(self):
         fn, _ = scripted([Result("plan", session_id="w1")])

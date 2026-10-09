@@ -53,6 +53,7 @@ Legend: [x] done · [~] code written + unit-tested, needs verification in Docker
   - Verify: start `--subject …`, `docker kill` the agent container mid-run → next `--subject` same subject / `--night` reports "previous run was stopped" and resumes
 
 - [x] First real run (`buttons`, 2026-10-10): pipeline end to end OK, 14 tests in 5 min; gave up only because 1 test failed `flint-validate` → D32: per-file checks + fix rounds + worker runs flint-validate; `.cache/` ignored
+- [x] Second run: supervisor returned empty (`error_max_turns` with `--max-turns 1` after a tool call) → D33
 - [ ] Rerun `buttons` after rebuild → expect PR (Checkpoint 1)
 
 ## Phase 3 — Server deploy
