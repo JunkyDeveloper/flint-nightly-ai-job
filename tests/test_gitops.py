@@ -48,6 +48,8 @@ class CollectTests(unittest.TestCase):
         (sandbox / "tests/a/notes.txt").write_text("ignored")
         (sandbox / "package.json").write_text("{}")                     # outside tests/: ignored
         os.symlink("/etc/passwd", sandbox / "tests/a/link.json")         # symlink: ignored
+        self.assertEqual(gitops.changed_tests(sandbox, repo), ["tests/a/changed.json", "tests/a/new.json"])
+        self.assertEqual((repo / "tests/a/changed.json").read_text(), '{"x": 1}')      # listing doesn't copy
         self.assertEqual(gitops.collect_tests(sandbox, repo), ["tests/a/changed.json", "tests/a/new.json"])
         self.assertEqual((repo / "tests/a/changed.json").read_text(), '{"x": 2}')
         self.assertFalse((repo / "package.json").exists())

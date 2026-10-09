@@ -49,6 +49,9 @@ Legend: [x] done · [~] code written + unit-tested, needs verification in Docker
 - [~] systemd service + timer (03:00 + random ≤1h, 5h hard kill, world wiped before/after)
 - [ ] **Checkpoint 2:** `sudo systemctl start flint-ai-cronjob.service` with `MAX_SUBJECTS_PER_NIGHT=3` → 3 subjects in priority order, report complete
 
+- [~] D31 interrupted runs: `current.json`, Haiku RESUME/RESTART, sandbox + sessions in volumes, SIGTERM → report (unit tests)
+  - Verify: start `--subject …`, `docker kill` the agent container mid-run → next `--subject` same subject / `--night` reports "previous run was stopped" and resumes
+
 ## Phase 3 — Server deploy
 - [ ] **You:** SETUP §1–§9 on the server
 - [ ] **Checkpoint 3:** after one real night, PRs waiting in the fork at 09:00

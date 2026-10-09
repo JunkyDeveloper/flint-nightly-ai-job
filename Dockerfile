@@ -42,9 +42,9 @@ RUN useradd -m -u 1000 agent \
  && useradd -m -u 1001 worker \
  && echo 'agent ALL=(worker) NOPASSWD: ALL' > /etc/sudoers.d/agent \
  && chmod 440 /etc/sudoers.d/agent \
- && mkdir -p /work/sandbox /state \
+ && mkdir -p /work/sandbox /state /home/worker/.claude/projects \
  && chown agent:agent /work /state \
- && chown worker:worker /work/sandbox
+ && chown -R worker:worker /work/sandbox /home/worker/.claude
 COPY --chown=worker:worker vendor/skills/flint-tests /home/worker/.claude/skills/flint-tests
 COPY runner /opt/runner/runner
 

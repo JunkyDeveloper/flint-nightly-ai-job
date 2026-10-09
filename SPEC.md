@@ -20,7 +20,8 @@ Every night, an unattended AI workflow writes [Flint](https://github.com/FlintTe
 4. Nothing is ever pushed to `master`, and nothing is force-pushed.
 5. The run never needs a human. Every skill question is answered automatically, or the subject is given up.
 6. At most `MAX_SUBJECTS_PER_NIGHT` (3) subjects per night. On a usage limit the run stops cleanly and the rest carry over.
-7. `/state/reports/<date>.md` exists after every run, including failed ones.
+7. `/state/reports/<date>.md` exists after every run, including failed and SIGTERM-stopped ones.
+7b. A run cut off mid-subject loses no work: the next run detects it and resumes or restarts that subject first (D31).
 
 **Code (testable now):**
 8. `python3 -m unittest discover -s tests` passes. It doesn't need Docker, network or Claude.
@@ -113,13 +114,14 @@ runner/                    → Python package, run as `python -m runner`
   agents.py                → worker (A/B) + Haiku calls, question loop, scrubbed env
   gitops.py                → clone, gate, push guard, PR
   preflight.py, report.py
-  prompts/                 → worker.md (plan), exec.md, summary.md, supervisor.md, grouping.md
+  prompts/                 → worker.md (plan), exec.md, summary.md, supervisor.md, grouping.md,
+                             interrupted.md (Haiku: resume or restart), resume.md (worker continues)
 tests/                     → test_*.py (stdlib unittest), fixtures built in temp dirs
 vendor/skills/flint-tests/ → vendored skill, unchanged
 deploy/                    → systemd .service + .timer, ops.json (op for the bot via offline UUID)
 state/                     → bind mount /state (gitignored): groups.json, subjects.json, reports/, subjects-preview.md
 ```
-Inside the container: `/config` ro, `/mc-src` ro, `/state` rw (bind mount `./state`), `/work` (container filesystem, fresh per run): `/work/repo` = runner's FlintBenchmark clone, `/work/sandbox` = worker's copy without `.git`.
+Inside the container: `/config` ro, `/mc-src` ro, `/state` rw (bind mount `./state`), `/work/repo` = runner's FlintBenchmark clone (fresh per run), `/work/sandbox` = worker's copy without `.git` (named volume `sandbox`), `/home/worker/.claude/projects` = worker's Claude sessions (named volume `claude-sessions`). Both volumes survive a killed run so it can be resumed (D31).
 
 **Two users (D26):** the runner runs as `agent` (uid 1000) and holds `GITHUB_TOKEN`. Every `claude` process runs as `worker` (uid 1001) via `sudo` with a reset env, in `/work/sandbox`. A different uid can't read the runner's `/proc/<pid>/environ`. After the worker finishes, the runner copies only new/changed `tests/**/*.json` (no symlinks) into its clone, re-runs each one with `flintcli`, and commits only the passing ones.
 
@@ -233,7 +235,7 @@ systemd timer (server) → docker compose run agent --night
 | unsupported | `/state/subjects.json` | never |
 | covered (existing tests already cover it) | `/state/subjects.json` | never |
 | gave_up | `/state/subjects.json` + attempt count | until 2 attempts |
-| unfinished (deadline / usage limit) | not stored | yes, next night |
+| interrupted (SIGTERM / night deadline / usage limit) | `/state/current.json` (subject, phase, Claude session, last message) | **first** next run: Haiku decides RESUME (same session + kept files) or RESTART; gave_up after 3 interruptions (D31) |
 
 ## PR format
 

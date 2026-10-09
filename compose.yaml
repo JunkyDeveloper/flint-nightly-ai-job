@@ -42,3 +42,10 @@ services:
       - ./config:/config:ro
       - ./minecraft_26.2:/mc-src:ro
       - ./state:/state
+      # Survive a killed run so interrupted work can be resumed (state/current.json):
+      - sandbox:/work/sandbox                        # worker's working copy
+      - claude-sessions:/home/worker/.claude/projects  # worker's Claude conversations (--resume)
+
+volumes:
+  sandbox:
+  claude-sessions:

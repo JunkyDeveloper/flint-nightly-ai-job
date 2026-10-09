@@ -90,10 +90,44 @@ class LoopTests(unittest.TestCase):
         with self.assertRaises(agents.UsageLimit):
             agents.work_on_subject("x", ["x"], 3600, claude_fn=fn)
 
+    def test_plan_stays_read_only_after_question(self):
+        fn, calls = scripted([
+            Result("which file?", session_id="w1"), sup("QUESTION", "tests/"),
+            Result("plan", session_id="w1"), sup("UNSUPPORTED", "x")])
+        agents.work_on_subject("x", ["x"], 3600, claude_fn=fn)
+        self.assertIn("--disallowedTools", calls[2][1])
+
+    def test_resume_continues_saved_session_and_reports_progress(self):
+        seen = []
+        fn, calls = scripted([
+            Result("continued, wrote tests", session_id="w9"), sup("DONE", "ok"),
+            Result('{"tests": []}', session_id="w9")])
+        out = agents.work_on_subject("x", ["x"], 3600, claude_fn=fn,
+                                     resume_from={"session": "w9", "phase": "exec"},
+                                     on_progress=lambda s, p, t: seen.append((s, p)))
+        self.assertEqual(calls[0][1][:4], ["--resume", "w9", "--model", "sonnet"])
+        self.assertIn("stopped", calls[0][0])                       # resume prompt, not the fresh worker prompt
+        self.assertEqual(out.status, "done")
+        self.assertEqual(seen[0], ("w9", "exec"))
+
     def test_time_budget(self):
         fn, _ = scripted([Result("plan", session_id="w1")])
         with self.assertRaises(agents.SubjectTimeout):
             agents.work_on_subject("x", ["x"], 10, claude_fn=fn)
+
+
+class InterruptedTests(unittest.TestCase):
+    def test_no_session_restarts_without_asking(self):
+        fn, calls = scripted([])
+        self.assertEqual(agents.check_interrupted({"subject": "x"}, [], claude_fn=fn)[0], "RESTART")
+        self.assertEqual(calls, [])
+
+    def test_haiku_decision(self):
+        fn, _ = scripted([Result('{"decision": "resume", "reason": "2 tests written"}')])
+        self.assertEqual(agents.check_interrupted({"subject": "x", "session": "s"}, ["tests/a.json"], claude_fn=fn),
+                         ("RESUME", "2 tests written"))
+        fn, _ = scripted([Result("no idea")])
+        self.assertEqual(agents.check_interrupted({"subject": "x", "session": "s"}, [], claude_fn=fn)[0], "RESTART")
 
 
 if __name__ == "__main__":

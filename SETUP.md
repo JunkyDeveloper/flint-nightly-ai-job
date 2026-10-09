@@ -123,6 +123,8 @@ Test a night right now (it stops at `DEADLINE` or after 5h): `sudo systemctl sta
 - **Grouping:** created once, then frozen in `state/groups.json`. Full list: `state/subjects-preview.md`. To regroup from scratch, delete `state/groups.json`.
 - **Retry a subject that gave up or was rejected:** remove its entry from `state/subjects.json`. If a PR/branch `nightly/<subject>` exists, delete the branch and close/delete the PR first, otherwise it counts as done.
 - **More or fewer subjects per night:** `MAX_SUBJECTS_PER_NIGHT` in `.env` (shares your Pro weekly limit).
+- **A run was stopped** (timeout, reboot, usage limit): nothing to do. The next run sees `state/current.json`, Haiku decides to resume or restart, and that subject runs first. After 3 interruptions it's given up. To throw the unfinished work away instead: `rm state/current.json`.
+- **Reset the worker's leftover files/sessions completely:** `docker volume rm flint-ai-cronjob_sandbox flint-ai-cronjob_claude-sessions` (don't use `docker compose down -v`).
 - **Skill changed locally:** `cp ~/.claude/skills/synced/*/flint-tests/SKILL.md vendor/skills/flint-tests/SKILL.md`, then rebuild.
 
 ## Preflight failure messages

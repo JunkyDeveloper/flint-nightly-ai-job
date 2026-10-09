@@ -351,6 +351,7 @@ Stack + timer on the server.
 | D28 | PR `## Cases` comes from the worker's final JSON summary, and the runner builds the PR body. No extra Haiku call |
 | D29 | Runner re-runs every collected test with `flintcli` before committing. Only passing tests reach the PR |
 | D30 | Vanilla tags read from `/mc-src/data/minecraft/tags` (the decompiled 26.2 source) instead of a copy in `config/`: smaller repo, can't drift from the source |
+| D31 | Interrupted runs: runner keeps `/state/current.json` (subject, phase, session, last message) while a subject runs; kept on SIGTERM / night deadline / usage limit. Sandbox + Claude sessions in named volumes. Next run: Haiku (`interrupted.md`) decides RESUME (same session, `resume.md`) or RESTART; that subject goes first; gave_up after 3 interruptions |
 
 ## Claude auth with Pro in Docker (D17, was P3)
 

@@ -1,5 +1,6 @@
 """Entry point: python -m runner (--preflight | --dry-run | --subject NAME --members IDS | --night)."""
 import argparse
+import signal
 import sys
 from datetime import datetime, timedelta
 
@@ -7,6 +8,17 @@ from . import CONFIG, REPO_DIR, SANDBOX, STATE, TAGS, env_int, env_str
 from . import agents, gitops, subjects
 from .preflight import PreflightFailed, preflight
 from .report import Report
+
+CURRENT = STATE / "current.json"     # exists only while a subject is unfinished
+MAX_INTERRUPTIONS = 3
+
+
+class Stopped(BaseException):
+    """SIGTERM (timeout / systemd / docker stop). BaseException so per-subject `except Exception` can't eat it."""
+
+
+def _on_sigterm(signum, frame):
+    raise Stopped()
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -32,15 +44,32 @@ def seconds_until_deadline(now: datetime | None = None) -> float:
     return (end - now).total_seconds()
 
 
-def run_subject(name: str, members: list[str], budget_s: float, report: Report, state: dict) -> None:
-    """One subject end to end. Raises UsageLimit; everything else is recorded and swallowed."""
+def run_subject(name: str, members: list[str], budget_s: float, report: Report, state: dict,
+                resume_from: dict | None = None, interruptions: int = 0) -> None:
+    """One subject end to end. Raises UsageLimit / Stopped; everything else is recorded and swallowed.
+
+    /state/current.json tracks the subject while it runs. It's removed on every final outcome and
+    kept when the run is cut off (usage limit, night deadline, SIGTERM), so the next run can resume."""
+    marker = {"subject": name, "members": members, "phase": (resume_from or {}).get("phase", "plan"),
+              "session": (resume_from or {}).get("session", ""), "interruptions": interruptions,
+              "started": datetime.now().isoformat(timespec="minutes"), "last_message": ""}
+
+    def progress(session: str, phase: str, text: str) -> None:
+        marker.update(session=session, phase=phase, last_message=text[-6000:])
+        subjects.save_json(CURRENT, marker)
+
+    deadline_bound = budget_s < env_int("SUBJECT_TIMEOUT_MIN", 90) * 60
     try:
         if gitops.is_done(name):
             report.subject(name, "skipped", "branch or PR already exists")
+            CURRENT.unlink(missing_ok=True)
             return
+        subjects.save_json(CURRENT, marker)
         gitops.start_branch(name)
-        gitops.refresh_sandbox()
-        out = agents.work_on_subject(name, members, budget_s)
+        if not resume_from:
+            gitops.refresh_sandbox()
+        out = agents.work_on_subject(name, members, budget_s, resume_from=resume_from, on_progress=progress)
+        CURRENT.unlink(missing_ok=True)      # worker finished one way or another: nothing left to resume
         report.usage_usd += out.cost
         if out.status != "done":
             subjects.record(state, name, out.status, out.note)
@@ -74,13 +103,45 @@ def run_subject(name: str, members: list[str], budget_s: float, report: Report, 
         subjects.record(state, name, "done", url)
         report.subject(name, "PR", f"{url} ({len(passing)} tests, models: {', '.join(out.models)})")
     except agents.UsageLimit:
+        report.subject(name, "interrupted", "usage limit; resumes next run")
         raise
     except agents.SubjectTimeout as e:
+        if deadline_bound:                   # the night ended, not the subject's own budget
+            report.subject(name, "interrupted", "night deadline; resumes next run")
+            return
+        CURRENT.unlink(missing_ok=True)
         subjects.record(state, name, "gave_up", str(e))
         report.subject(name, "gave_up", str(e))
+    except Stopped:
+        report.subject(name, "interrupted", "stopped (SIGTERM); resumes next run")
+        raise
     except Exception as e:  # one subject must never kill the night
+        CURRENT.unlink(missing_ok=True)
         subjects.record(state, name, "gave_up", f"{type(e).__name__}: {e}")
         report.subject(name, "error", f"{type(e).__name__}: {e}")
+
+
+def interrupted_work(report: Report, state: dict) -> dict | None:
+    """Was the previous run stopped mid-subject? Haiku decides RESUME vs RESTART. Returns what to run first."""
+    marker = subjects.load_json(CURRENT, None)
+    if not marker:
+        return None
+    name, n = marker["subject"], marker.get("interruptions", 0) + 1
+    report.warn(f"previous run was stopped during `{name}` (phase {marker.get('phase')}, "
+                f"started {marker.get('started')}, interruption #{n})")
+    if gitops.is_done(name):
+        CURRENT.unlink(missing_ok=True)
+        return None
+    if n >= MAX_INTERRUPTIONS:
+        subjects.record(state, name, "gave_up", f"interrupted {n} times")
+        report.subject(name, "gave_up", f"interrupted {n} times")
+        CURRENT.unlink(missing_ok=True)
+        return None
+    files = gitops.changed_tests(SANDBOX, REPO_DIR)
+    decision, reason = agents.check_interrupted(marker, files)
+    report.note(f"interrupted `{name}`: Haiku says {decision} ({reason}); {len(files)} leftover test file(s)")
+    resume = {"session": marker["session"], "phase": marker.get("phase", "plan")} if decision == "RESUME" else None
+    return {"name": name, "members": marker["members"], "resume_from": resume, "interruptions": n}
 
 
 def load_groups(ids: list[str], tags: dict, report: Report, review: bool) -> dict[str, list[str]]:
@@ -126,7 +187,16 @@ def night(report: Report, dry_run: bool) -> None:
     state = subjects.load_json(STATE / "subjects.json", {})
     started, limit = 0, env_int("MAX_SUBJECTS_PER_NIGHT", 3)
     try:
+        first = interrupted_work(report, state)
+        if first:
+            started += 1
+            budget = min(env_int("SUBJECT_TIMEOUT_MIN", 90) * 60, seconds_until_deadline())
+            run_subject(first["name"], first["members"], budget, report, state,
+                        first["resume_from"], first["interruptions"])
+            subjects.save_json(STATE / "subjects.json", state)
         for name in order:
+            if first and name == first["name"]:
+                continue
             if started >= limit:
                 break
             remaining = seconds_until_deadline()
@@ -154,6 +224,7 @@ def main(argv: list[str]) -> int:
             else "subject" if args.subject else "night")
     report = Report(mode)
     code = 0
+    signal.signal(signal.SIGTERM, _on_sigterm)
     try:
         if args.dry_run:
             night(report, dry_run=True)
@@ -162,14 +233,22 @@ def main(argv: list[str]) -> int:
             if args.subject:
                 members = [subjects.short(m) for m in args.members.split(",") if m.strip()]
                 state = subjects.load_json(STATE / "subjects.json", {})
+                marker = subjects.load_json(CURRENT, None)
+                if marker and marker["subject"] != args.subject:
+                    report.warn(f"unfinished `{marker['subject']}` from an earlier run is dropped by this manual run")
+                first = interrupted_work(report, state) if marker and marker["subject"] == args.subject else None
                 try:
-                    run_subject(args.subject, members, env_int("SUBJECT_TIMEOUT_MIN", 90) * 60, report, state)
+                    run_subject(args.subject, members, env_int("SUBJECT_TIMEOUT_MIN", 90) * 60, report, state,
+                                (first or {}).get("resume_from"), (first or {}).get("interruptions", 0))
                 except agents.UsageLimit as e:
                     report.warn(f"Claude usage limit reached: {str(e)[:300]}")
                 subjects.save_json(STATE / "subjects.json", state)
             elif args.night:
                 night(report, dry_run=False)
         report.result = "ok"
+    except Stopped:
+        report.result = "stopped by SIGTERM (unfinished work kept in state/current.json for the next run)"
+        code = 143
     except PreflightFailed as e:
         report.result = f"preflight failed: {e}"
         code = 2

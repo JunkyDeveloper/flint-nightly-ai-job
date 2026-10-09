@@ -108,22 +108,23 @@ def refresh_sandbox() -> None:
         raise GitError(f"sandbox copy failed: {proc.stderr.strip()[-500:]}")
 
 
-def collect_tests(sandbox: Path, repo: Path) -> list[str]:
-    """Copy new or changed sandbox tests/**/*.json into the repo. Returns repo-relative paths."""
-    changed = []
+def changed_tests(sandbox: Path, repo: Path) -> list[str]:
+    """Sandbox tests/**/*.json (no symlinks) that are new or differ from the repo. Repo-relative paths."""
     root = sandbox / "tests"
     if not root.is_dir():
-        return changed
-    for src in sorted(root.rglob("*.json")):
-        if src.is_symlink():
-            continue
-        rel = src.relative_to(sandbox)
-        dst = repo / rel
-        if dst.exists() and filecmp.cmp(src, dst, shallow=False):
-            continue
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dst)
-        changed.append(rel.as_posix())
+        return []
+    return [src.relative_to(sandbox).as_posix() for src in sorted(root.rglob("*.json"))
+            if not src.is_symlink()
+            and not ((repo / src.relative_to(sandbox)).exists()
+                     and filecmp.cmp(src, repo / src.relative_to(sandbox), shallow=False))]
+
+
+def collect_tests(sandbox: Path, repo: Path) -> list[str]:
+    """Copy new or changed sandbox tests/**/*.json into the repo. Returns repo-relative paths."""
+    changed = changed_tests(sandbox, repo)
+    for rel in changed:
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(sandbox / rel, repo / rel)
     return changed
 
 
