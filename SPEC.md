@@ -116,7 +116,7 @@ runner/                    → Python package, run as `python -m runner`
   prompts/                 → worker.md (plan), exec.md, summary.md, supervisor.md, grouping.md
 tests/                     → test_*.py (stdlib unittest), fixtures built in temp dirs
 vendor/skills/flint-tests/ → vendored skill, unchanged
-deploy/                    → systemd .service + .timer
+deploy/                    → systemd .service + .timer, ops.json (op for the bot via offline UUID)
 state/                     → bind mount /state (gitignored): groups.json, subjects.json, reports/, subjects-preview.md
 ```
 Inside the container: `/config` ro, `/mc-src` ro, `/state` rw (bind mount `./state`), `/work` (container filesystem, fresh per run): `/work/repo` = runner's FlintBenchmark clone, `/work/sandbox` = worker's copy without `.git`.
@@ -193,7 +193,7 @@ def push_branch(repo: Path, branch: str) -> None:
 ## Constraints
 
 - **Versions are locked:** MC server = decompiled source = tags = **26.2**. flint-core spec rev = FlintCLI's flint-core rev. Preflight blocks the run on mismatch.
-- **Network:** the MC server is offline-mode, with op for `flintmc_testbot`, and its port is never published. The agent uses the shared network namespace at `localhost:25565`.
+- **Network:** the MC server is offline-mode, with op for `flintmc_testbot` (via `deploy/ops.json`, offline UUID), and its port is never published. The agent uses the shared network namespace at `localhost:25565`.
 - **Host:** always-on x86_64 Linux server with Docker. The timer uses the server timezone, which must be the owner's.
 - **Claude:** Pro subscription. 5h + weekly limits are shared with the owner's daytime use. Usage credits off. API key = fallback.
 - **Container:** non-root (`agent` runner, `worker` for Claude, D26). Only `/work` and `/state` are writable.

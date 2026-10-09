@@ -9,13 +9,16 @@ services:
       VERSION: "26.2"
       ONLINE_MODE: "FALSE"
       ENFORCE_SECURE_PROFILE: "FALSE"
-      OPS: flintmc_testbot
       LEVEL_TYPE: FLAT
       DIFFICULTY: peaceful
       SEED: "flint"
       SPAWN_PROTECTION: "0"
       MEMORY: 3G
       TZ: ${TZ:-UTC}
+    volumes:
+      # Op for FlintCLI's bot via its offline UUID. Not `OPS:`: the image looks names up online and
+      # flintmc_testbot is no real account ("Could not resolve user from Playerdb").
+      - ./deploy/ops.json:/data/ops.json:ro
     # No `ports:` on purpose: the offline-mode server is only reachable by the agent.
     # World lives in the container's anonymous /data volume; `docker compose rm -fsv minecraft` wipes it.
     healthcheck:

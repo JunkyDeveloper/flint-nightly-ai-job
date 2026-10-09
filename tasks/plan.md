@@ -30,7 +30,7 @@ server (Linux, Docker, always on)
      ├─ service: minecraft  (itzg/minecraft-server, pinned tag)
      │    TYPE=VANILLA  VERSION=26.2   (image tag with matching Java)
      │    ONLINE_MODE=FALSE  ENFORCE_SECURE_PROFILE=FALSE
-     │    OPS=flintmc_testbot   (bot needs op for /tick + anti-spam)
+     │    ops.json mounted (offline UUID 40fb02f0-…; OPS= fails: online name lookup)
      │    no `ports:` → not reachable from host or LAN
      │    healthcheck: mc-health
      │    LEVEL_TYPE=FLAT, peaceful, fixed seed, world fresh per run

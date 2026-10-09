@@ -56,4 +56,4 @@ Legend: [x] done · [~] code written + unit-tested, needs verification in Docker
 ## Known ceilings (later)
 - New id for a family that already has a PR is skipped (plan: "Known ceilings")
 - MC version bump: replace `minecraft_26.2/` (brings tags), `VERSION` in compose, FlintCLI pin together
-- itzg `OPS` with offline mode: if the bot isn't op (flintcli gets kicked for spam), op it via RCON
+- [x] itzg `OPS=flintmc_testbot` crashed the server ("Could not resolve user from Playerdb") → replaced by mounted `deploy/ops.json` with the offline UUID (2026-10-10)
