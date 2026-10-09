@@ -49,7 +49,7 @@ Every night, an unattended AI workflow writes [Flint](https://github.com/FlintTe
 | Runner | **Python 3 (3.12+), standard library only** (`subprocess`, `json`, `pathlib`, `argparse`) | base image tag |
 | Container | Docker + docker compose, `linux/amd64` | — |
 | MC server | `itzg/minecraft-server`, `TYPE=VANILLA`, `VERSION=26.2` | image tag (Phase 1 start) |
-| flintcli | `JunkyDeveloper/FlintCLI` @ `f2474b8` (azalea `a8959f62` = 26.2), Rust nightly | commit + nightly date |
+| flintcli | `JunkyDeveloper/FlintCLI` @ `f2474b8` (azalea `a8959f62` = 26.2), Rust `nightly-2026-07-19` (newer nightlies break azalea) | commit + nightly date |
 | flint-validate / spec | `FlintTestMC/flint-core` @ `a6f4d12c` | commit |
 | AI | Claude Code CLI (`claude -p`), Pro OAuth token. Opus = plan, Sonnet = exec, Haiku = supervisor | CLI version, `DISABLE_AUTOUPDATER=1` |
 | Skill | `flint-tests`, vendored unchanged | file checksum |

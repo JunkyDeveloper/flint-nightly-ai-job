@@ -54,7 +54,7 @@ server (Linux, Docker, always on)
 
 ```
 stage flintcli-build
-  FROM rust (nightly, pinned date)        # rust-toolchain.toml says plain "nightly" → pin it
+  FROM rustlang/rust:nightly-trixie-2026-07-19   # newer nightlies break azalea a8959f62
   source: https://github.com/JunkyDeveloper/FlintCLI @ ARG FLINTCLI_REF=f2474b8
   cargo build --release --locked
   → /out/flintcli  (binary name: check Cargo [[bin]], package is "flintmc")
@@ -406,7 +406,7 @@ None. `SPEC.md` v2 approved. Phase 0 closes when your 3 inputs are ready (26.2 s
 | Fix loop never ends / test is shaped to pass | Max attempts. Final review step: "test matches mc-src behavior" |
 | Offline-mode server exposed | No `ports:`. Checkpoint 1 verifies from host |
 | Agent with skip-permissions damages host | Only `/work` + `/state` writable. `/mc-src` ro. Non-root. No docker socket |
-| Unpinned Rust nightly breaks build | Pin nightly date |
+| Unpinned Rust nightly breaks build | Pinned `nightly-trixie-2026-07-19` (2026-09-29 already fails on azalea). Bump only with FlintCLI |
 | Synced skill path changes (UUID dir) | Vendored copy + documented refresh command |
 | Pushed branch fails CI | Same 3 checks as CI run before push |
 | Push credential leaks | Repo-scoped fine-grained PAT, `.env` chmod 600 + gitignored, expiry + rotate |

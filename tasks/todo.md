@@ -11,6 +11,7 @@ Legend: [x] done · [~] code written + unit-tested, needs verification in Docker
 - [x] Found: 13 (local) / 44 (fork master) existing tests fail flint-validate (`use_item_on` no longer exists, also on flint-core main) → gate now checks only our files; worker prompt warns
 - [x] Found: fork `master` (c972906) is behind your local copy (68591eb) → **sync the fork** before the first run
 - [x] `claude -p` JSON fields match parser; `--resume` + `--model` switch works (haiku→sonnet, same session); `/flint-tests` loads via stdin prompt
+- [x] Found + fixed (server build): Rust nightly 2026-09-29 can't compile azalea `a8959f62` (E0284) → pinned `nightly-trixie-2026-07-19`, FlintCLI build verified with exactly that toolchain
 - [x] Found + fixed: `--disallowedTools` swallowed the positional prompt → prompt now via stdin (regression test)
 
 ## Phase 0 — Decide
@@ -21,7 +22,7 @@ Legend: [x] done · [~] code written + unit-tested, needs verification in Docker
 
 ## Phase 1 — First AI PR (one subject, started by hand)
 - [x] T1 Repo skeleton: vendored skill (checksum = global), `.gitignore`, `.env.example`
-- [~] T2 Dockerfile build stage: flintcli `f2474b8`, flint-validate `a6f4d12c`, typos 1.47.2 (Rust nightly 2026-09-29)
+- [~] T2 Dockerfile build stage: flintcli `f2474b8`, flint-validate `a6f4d12c`, typos 1.47.2 (Rust nightly-2026-07-19)
   - Verify: `docker compose build`
 - [~] T3 Dockerfile final stage: debian trixie, python3, claude 2.1.296 (no autoupdate), gh, node, ripgrep, netcat, users `agent`/`worker`, skill
   - Verify: `docker compose run --rm --entrypoint sh agent -c 'flintcli --help && flint-validate --help && typos --version && claude --version && sudo -u worker -H ls ~worker/.claude/skills/flint-tests'`

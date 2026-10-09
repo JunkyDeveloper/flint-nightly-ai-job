@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # ---- build: flintcli, flint-validate, typos -------------------------------------
-FROM rustlang/rust:nightly-trixie-2026-09-29 AS build
+# azalea a8959f62 uses unstable const generics: nightly 2026-09-29 fails (E0284 in azalea-core bitset.rs),
+# nightly-2026-07-19 (rustc eff8269f7 2026-07-18) builds FlintCLI f2474b8 (verified 2026-10-10). Bump only together with FlintCLI.
+FROM rustlang/rust:nightly-trixie-2026-07-19 AS build
 ARG FLINTCLI_REF=f2474b8
 ARG FLINT_CORE_REV=a6f4d12c02cd37877d5b77e81b51477b16ab54c3
 ARG TYPOS_VERSION=1.47.2
@@ -9,6 +11,7 @@ RUN mkdir -p /out \
  && git clone https://github.com/JunkyDeveloper/FlintCLI.git /src/flintcli \
  && git -C /src/flintcli checkout "$FLINTCLI_REF" \
  # no --locked: FlintCLI f2474b8's Cargo.lock misses one entry (checked 2026-10-09); git deps stay pinned by rev
+ && rustc --version \
  && cargo build --release --manifest-path /src/flintcli/Cargo.toml \
  && install -m 755 /src/flintcli/target/release/flintmc /out/flintcli
 RUN git clone https://github.com/FlintTestMC/flint-core.git /src/flint-core \
