@@ -2,6 +2,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from runner import gitops
 
@@ -29,10 +30,17 @@ class BranchTests(unittest.TestCase):
 
 class GateTests(unittest.TestCase):
     def test_checks_only_our_files(self):
-        steps = gitops.gate_steps(["tests/a/new.json"])
-        self.assertIn(["flint-validate", "tests/a/new.json"], steps)
-        self.assertIn(["typos", "tests/a/new.json"], steps)
-        self.assertFalse(any("--recursive" in s for s in steps))
+        self.assertEqual(gitops.file_checks("tests/a/new.json"),
+                         [["typos", "tests/a/new.json"], ["flint-validate", "tests/a/new.json"]])
+
+    def test_one_invalid_file_is_dropped_not_the_whole_subject(self):
+        def fake_run(cmd, **kw):
+            bad = cmd[0] == "flint-validate" and cmd[1] == "tests/bad.json"
+            return mock.Mock(returncode=1 if bad else 0, stdout="cleanup region must contain the origin", stderr="")
+        with mock.patch.object(gitops, "run", side_effect=fake_run):
+            good, problems = gitops.gate(["tests/ok.json", "tests/bad.json"])
+        self.assertEqual(good, ["tests/ok.json"])
+        self.assertIn("cleanup region", problems[0])
 
 
 class CollectTests(unittest.TestCase):
@@ -47,6 +55,8 @@ class CollectTests(unittest.TestCase):
         (sandbox / "tests/a/new.json").write_text("{}")
         (sandbox / "tests/a/notes.txt").write_text("ignored")
         (sandbox / "package.json").write_text("{}")                     # outside tests/: ignored
+        (sandbox / "tests/a/.cache").mkdir()
+        (sandbox / "tests/a/.cache/index.json").write_text("{}")         # flintcli cache: ignored
         os.symlink("/etc/passwd", sandbox / "tests/a/link.json")         # symlink: ignored
         self.assertEqual(gitops.changed_tests(sandbox, repo), ["tests/a/changed.json", "tests/a/new.json"])
         self.assertEqual((repo / "tests/a/changed.json").read_text(), '{"x": 1}')      # listing doesn't copy

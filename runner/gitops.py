@@ -115,6 +115,7 @@ def changed_tests(sandbox: Path, repo: Path) -> list[str]:
         return []
     return [src.relative_to(sandbox).as_posix() for src in sorted(root.rglob("*.json"))
             if not src.is_symlink()
+            and not any(part.startswith(".") for part in src.relative_to(root).parts)  # flintcli's .cache/
             and not ((repo / src.relative_to(sandbox)).exists()
                      and filecmp.cmp(src, repo / src.relative_to(sandbox), shallow=False))]
 
@@ -133,21 +134,32 @@ def verify_test(rel: str) -> tuple[bool, str]:
     return proc.returncode == 0, (proc.stdout + proc.stderr).strip()[-800:]
 
 
-def gate_steps(files: list[str]) -> list[list[str]]:
-    """CI's checks, scoped to our files: existing FlintBenchmark tests may be outdated
+SETUP_STEPS = [["npm", "ci", "--no-audit", "--no-fund"],
+               ["npm", "run", "format"]]           # formats in place; we only `git add` our files
+
+
+def file_checks(rel: str) -> list[list[str]]:
+    """CI's checks, per file: existing FlintBenchmark tests may be outdated
     (2026-10-09: 13-44 old tests use `use_item_on`, which flint-core rejects)."""
-    return [["npm", "ci", "--no-audit", "--no-fund"],
-            ["npm", "run", "format"],          # formats in place; we only `git add` our files
-            ["typos", *files],
-            ["flint-validate", *files]]
+    return [["typos", rel], ["flint-validate", rel]]
 
 
-def gate(files: list[str]) -> tuple[bool, str]:
-    for cmd in gate_steps(files):
+def gate(files: list[str]) -> tuple[list[str], list[str]]:
+    """Returns (files that pass every CI check, problems). One bad file doesn't sink the others."""
+    for cmd in SETUP_STEPS:
         proc = run(cmd, cwd=REPO_DIR, timeout=900)
         if proc.returncode != 0:
-            return False, f"`{' '.join(cmd)}` failed: {(proc.stdout + proc.stderr).strip()[-800:]}"
-    return True, "ok"
+            return [], [f"`{' '.join(cmd)}` failed: {(proc.stdout + proc.stderr).strip()[-800:]}"]
+    good, problems = [], []
+    for rel in files:
+        for cmd in file_checks(rel):
+            proc = run(cmd, cwd=REPO_DIR, timeout=300)
+            if proc.returncode != 0:
+                problems.append(f"`{rel}`: {cmd[0]}: {(proc.stdout + proc.stderr).strip()[-300:]}")
+                break
+        else:
+            good.append(rel)
+    return good, problems
 
 
 def pr_body(subject: str, summary: dict, files: list[str]) -> str:

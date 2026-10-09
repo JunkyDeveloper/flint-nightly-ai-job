@@ -2,6 +2,7 @@
 import argparse
 import signal
 import sys
+import time
 from datetime import datetime, timedelta
 
 from . import CONFIG, REPO_DIR, SANDBOX, STATE, TAGS, env_int, env_str
@@ -44,6 +45,19 @@ def seconds_until_deadline(now: datetime | None = None) -> float:
     return (end - now).total_seconds()
 
 
+def check_tests(files: list[str]) -> tuple[list[str], list[str]]:
+    """Runner's own checks: flintcli re-run against the server, then CI's per-file checks."""
+    ran, problems = [], []
+    for rel in files:
+        ok, log = gitops.verify_test(rel)
+        if ok:
+            ran.append(rel)
+        else:
+            problems.append(f"`{rel}`: flintcli: {log[-300:]}")
+    good, gate_problems = gitops.gate(ran) if ran else ([], [])
+    return good, problems + gate_problems
+
+
 def run_subject(name: str, members: list[str], budget_s: float, report: Report, state: dict,
                 resume_from: dict | None = None, interruptions: int = 0) -> None:
     """One subject end to end. Raises UsageLimit / Stopped; everything else is recorded and swallowed.
@@ -59,6 +73,7 @@ def run_subject(name: str, members: list[str], budget_s: float, report: Report, 
         subjects.save_json(CURRENT, marker)
 
     deadline_bound = budget_s < env_int("SUBJECT_TIMEOUT_MIN", 90) * 60
+    deadline = time.monotonic() + budget_s
     try:
         if gitops.is_done(name):
             report.subject(name, "skipped", "branch or PR already exists")
@@ -69,31 +84,31 @@ def run_subject(name: str, members: list[str], budget_s: float, report: Report, 
         if not resume_from:
             gitops.refresh_sandbox()
         out = agents.work_on_subject(name, members, budget_s, resume_from=resume_from, on_progress=progress)
-        CURRENT.unlink(missing_ok=True)      # worker finished one way or another: nothing left to resume
         report.usage_usd += out.cost
         if out.status != "done":
+            CURRENT.unlink(missing_ok=True)
             subjects.record(state, name, out.status, out.note)
             report.subject(name, out.status, out.note)
             return
 
-        files = gitops.collect_tests(SANDBOX, REPO_DIR)
-        passing = []
-        for rel in files:
-            ok, log = gitops.verify_test(rel)
-            if ok:
-                passing.append(rel)
-            else:
-                (REPO_DIR / rel).unlink(missing_ok=True)
-                report.warn(f"{name}: dropped `{rel}`, fails on re-run: {log[-200:]}")
+        # Check independently; send failures back into the worker's session, up to FIX_ROUNDS times.
+        candidates: list[str] = []
+        fix_rounds = env_int("FIX_ROUNDS", 2)
+        for round_ in range(fix_rounds + 1):
+            candidates += [f for f in gitops.collect_tests(SANDBOX, REPO_DIR) if f not in candidates]
+            candidates = [f for f in candidates if (SANDBOX / f).exists()]     # worker may delete a test
+            passing, problems = check_tests(candidates)
+            remaining = deadline - time.monotonic()
+            if not problems or round_ == fix_rounds or not out.session or remaining < 300:
+                break
+            report.note(f"{name}: fix round {round_ + 1}: {len(problems)} problem(s) sent back to the worker")
+            report.usage_usd += agents.fix_tests(out.session, problems, remaining).cost
+        CURRENT.unlink(missing_ok=True)
+        for p in problems:
+            report.warn(f"{name}: dropped {p}")
         if not passing:
-            subjects.record(state, name, "gave_up", "no passing tests")
-            report.subject(name, "gave_up", "no passing tests")
-            return
-
-        ok, msg = gitops.gate(passing)
-        if not ok:
-            subjects.record(state, name, "gave_up", f"gate: {msg}")
-            report.subject(name, "gave_up", f"gate failed: {msg}")
+            subjects.record(state, name, "gave_up", "no test passed the runner's checks")
+            report.subject(name, "gave_up", "no test passed the runner's checks")
             return
         summary = out.summary or {}
         for t in summary.get("not_tested", []):

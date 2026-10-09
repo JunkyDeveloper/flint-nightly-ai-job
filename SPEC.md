@@ -115,7 +115,8 @@ runner/                    → Python package, run as `python -m runner`
   gitops.py                → clone, gate, push guard, PR
   preflight.py, report.py
   prompts/                 → worker.md (plan), exec.md, summary.md, supervisor.md, grouping.md,
-                             interrupted.md (Haiku: resume or restart), resume.md (worker continues)
+                             interrupted.md (Haiku: resume or restart), resume.md (worker continues),
+                             fix.md (runner's check failures back to the worker)
 tests/                     → test_*.py (stdlib unittest), fixtures built in temp dirs
 vendor/skills/flint-tests/ → vendored skill, unchanged
 deploy/                    → systemd .service + .timer, ops.json (op for the bot via offline UUID)
@@ -223,7 +224,9 @@ systemd timer (server) → docker compose run agent --night
                  │    worker A (PLAN_MODEL=opus, read-only tools, /flint-tests) → case plan
                  │    Haiku: review plan, answer questions, DONE/QUESTION/STUCK
                  │    worker B (EXEC_MODEL=sonnet, --resume) → write + run tests → JSON summary
-                 │    runner: copy tests back → re-run each with flintcli → gate → commit → push nightly/<subject> → PR
+                 │    runner: copy tests back → re-run each with flintcli → typos + flint-validate per file
+                 │      failures → back into the worker session to fix (≤ FIX_ROUNDS=2, D32) → drop the rest
+                 │    commit passing tests → push nightly/<subject> → PR
                  └─ report → /state/reports/<date>.md
 ```
 

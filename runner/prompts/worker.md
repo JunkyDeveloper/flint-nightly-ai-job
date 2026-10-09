@@ -6,6 +6,7 @@ You are running unattended at night. No human is available. Your messages are re
 
 1. flint-core spec: `$spec` (read it; it is the exact version flintcli understands)
 2. flintcli binary: `$flintcli`, run tests with `$flintcli <file.json> -s $server`
+   Format validator (same as CI): `flint-validate <file.json>`. Every test must pass it too.
 3. Decompiled Minecraft 26.2 source: `$mc_src`
 4. A vanilla 26.2 server is running at `$server` (offline mode, the bot is op).
 5. Existing tests (examples and conventions): `./tests/` in the current directory. Read 3–5 of them before planning.

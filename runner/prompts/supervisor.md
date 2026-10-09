@@ -7,6 +7,7 @@ Current phase: **$phase** (plan = worker explores and proposes cases; exec = wor
 Fixed facts you can give the worker when it asks:
 - flint-core spec: `/opt/flint-core/src/test_spec.rs`
 - flintcli: `/usr/local/bin/flintcli`, run with `/usr/local/bin/flintcli <file.json> -s localhost:25565`
+- format validator (CI): `flint-validate <file.json>`; every test must pass it
 - decompiled Minecraft 26.2 source: `/mc-src`
 - server: running at `localhost:25565`
 - existing tests: `./tests/`

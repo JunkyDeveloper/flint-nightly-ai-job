@@ -107,6 +107,19 @@ class Outcome:
     summary: dict | None = None
     cost: float = 0.0
     models: list[str] = field(default_factory=list)
+    session: str = ""        # worker session, for fix rounds after the runner's own checks
+
+
+def fix_tests(session: str, problems: list[str], timeout: float, claude_fn: ClaudeFn = claude) -> Result:
+    """Send the runner's check failures back into the worker's session (EXEC_MODEL) to fix them."""
+    if timeout < 60:
+        raise SubjectTimeout("no time left for a fix round")
+    r = claude_fn(prompt("fix", problems="\n".join(f"- {p}" for p in problems)),
+                  ["--resume", session, "--model", env_str("EXEC_MODEL", "sonnet"),
+                   "--permission-mode", "bypassPermissions"], timeout)
+    if hit_limit(r):
+        raise UsageLimit(r.text)
+    return r
 
 
 Progress = Callable[[str, str, str], None]   # (session_id, phase, last worker message)
@@ -191,7 +204,7 @@ def work_on_subject(subject: str, members: list[str], budget_s: float,
         elif verdict == "DONE":
             s = call(prompt("summary"), resume("exec"))
             out.summary = first_json(s.text)
-            out.status, out.note = "done", answer
+            out.status, out.note, out.session = "done", answer, session
             return out
         elif verdict in ("UNSUPPORTED", "COVERED"):
             out.status, out.note = verdict.lower(), answer
