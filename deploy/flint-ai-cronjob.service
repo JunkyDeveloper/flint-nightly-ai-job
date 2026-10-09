@@ -1,0 +1,16 @@
+[Unit]
+Description=flint-ai-cronjob nightly Flint test generation
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Change if the repo lives somewhere else on the server.
+WorkingDirectory=/opt/flint-ai-cronjob
+# Fresh Minecraft world every night (removes only the minecraft container + its anonymous /data volume).
+ExecStartPre=-/usr/bin/docker compose rm -fsv minecraft
+# Hard stop 5h after start: 03:00-04:00 start -> killed by 08:00-09:00. Runner stops itself at DEADLINE before that.
+ExecStart=/usr/bin/timeout --kill-after=2m 5h /usr/bin/docker compose run --rm agent --night
+ExecStopPost=-/usr/bin/docker compose rm -fsv minecraft
+TimeoutStartSec=5h30min

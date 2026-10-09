@@ -1,0 +1,17 @@
+{
+  "hash": 9562217574046607273,
+  "index": {
+    "interaction": [
+      "/tmp/claude-1000/-home-jonas-flint-flint-ai-cronjob/868b3a47-d335-4415-a6bb-d42a0e932ad4/scratchpad/work/repo/tests/fluids/water_lava_mixing.json"
+    ],
+    "lava": [
+      "/tmp/claude-1000/-home-jonas-flint-flint-ai-cronjob/868b3a47-d335-4415-a6bb-d42a0e932ad4/scratchpad/work/repo/tests/fluids/water_lava_mixing.json"
+    ],
+    "minecraft:lava": [
+      "/tmp/claude-1000/-home-jonas-flint-flint-ai-cronjob/868b3a47-d335-4415-a6bb-d42a0e932ad4/scratchpad/work/repo/tests/fluids/water_lava_mixing.json"
+    ],
+    "minecraft:water": [
+      "/tmp/claude-1000/-home-jonas-flint-flint-ai-cronjob/868b3a47-d335-4415-a6bb-d42a0e932ad4/scratchpad/work/repo/tests/fluids/water_lava_mixing.json"
+    ]
+  }
+}

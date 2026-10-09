@@ -1,0 +1,187 @@
+"""Entry point: python -m runner (--preflight | --dry-run | --subject NAME --members IDS | --night)."""
+import argparse
+import sys
+from datetime import datetime, timedelta
+
+from . import CONFIG, REPO_DIR, SANDBOX, STATE, TAGS, env_int, env_str
+from . import agents, gitops, subjects
+from .preflight import PreflightFailed, preflight
+from .report import Report
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    p = argparse.ArgumentParser(prog="runner", description=__doc__)
+    mode = p.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--preflight", action="store_true", help="only run the preflight checks")
+    mode.add_argument("--dry-run", action="store_true", help="print subjects + order; no Claude, no GitHub")
+    mode.add_argument("--subject", help="run one subject by hand (needs --members)")
+    mode.add_argument("--night", action="store_true", help="full nightly run")
+    p.add_argument("--members", help="comma-separated ids for --subject, e.g. minecraft:oak_button,...")
+    args = p.parse_args(argv)
+    if args.subject and not args.members:
+        p.error("--subject needs --members")
+    return args
+
+
+def seconds_until_deadline(now: datetime | None = None) -> float:
+    now = now or datetime.now()
+    hh, mm = map(int, env_str("DEADLINE", "08:15").split(":"))
+    end = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if end <= now and now.hour >= 12:      # started in the evening for a morning deadline
+        end += timedelta(days=1)
+    return (end - now).total_seconds()
+
+
+def run_subject(name: str, members: list[str], budget_s: float, report: Report, state: dict) -> None:
+    """One subject end to end. Raises UsageLimit; everything else is recorded and swallowed."""
+    try:
+        if gitops.is_done(name):
+            report.subject(name, "skipped", "branch or PR already exists")
+            return
+        gitops.start_branch(name)
+        gitops.refresh_sandbox()
+        out = agents.work_on_subject(name, members, budget_s)
+        report.usage_usd += out.cost
+        if out.status != "done":
+            subjects.record(state, name, out.status, out.note)
+            report.subject(name, out.status, out.note)
+            return
+
+        files = gitops.collect_tests(SANDBOX, REPO_DIR)
+        passing = []
+        for rel in files:
+            ok, log = gitops.verify_test(rel)
+            if ok:
+                passing.append(rel)
+            else:
+                (REPO_DIR / rel).unlink(missing_ok=True)
+                report.warn(f"{name}: dropped `{rel}`, fails on re-run: {log[-200:]}")
+        if not passing:
+            subjects.record(state, name, "gave_up", "no passing tests")
+            report.subject(name, "gave_up", "no passing tests")
+            return
+
+        ok, msg = gitops.gate(passing)
+        if not ok:
+            subjects.record(state, name, "gave_up", f"gate: {msg}")
+            report.subject(name, "gave_up", f"gate failed: {msg}")
+            return
+        summary = out.summary or {}
+        for t in summary.get("not_tested", []):
+            report.note(f"{name}: not tested {t.get('id')} ({t.get('reason')}): {t.get('note', '')}")
+        url = gitops.commit_push_pr(name, passing, gitops.pr_title(name, summary),
+                                    gitops.pr_body(name, summary, passing))
+        subjects.record(state, name, "done", url)
+        report.subject(name, "PR", f"{url} ({len(passing)} tests, models: {', '.join(out.models)})")
+    except agents.UsageLimit:
+        raise
+    except agents.SubjectTimeout as e:
+        subjects.record(state, name, "gave_up", str(e))
+        report.subject(name, "gave_up", str(e))
+    except Exception as e:  # one subject must never kill the night
+        subjects.record(state, name, "gave_up", f"{type(e).__name__}: {e}")
+        report.subject(name, "error", f"{type(e).__name__}: {e}")
+
+
+def load_groups(ids: list[str], tags: dict, report: Report, review: bool) -> dict[str, list[str]]:
+    """Frozen /state/groups.json. Created once (Haiku-reviewed); later only new ids are appended."""
+    path = STATE / "groups.json"
+    groups = subjects.load_json(path, None)
+    if groups is None:
+        groups = subjects.candidate_groups(ids, tags)
+        if review:
+            proposed = agents.review_groups(groups)
+            if subjects.validate_groups(proposed, ids):
+                groups = {k: [subjects.short(m) for m in v] for k, v in proposed.items()}
+                report.note(f"grouping reviewed by Haiku: {len(groups)} subjects")
+            else:
+                report.warn("Haiku grouping review unusable; kept computed grouping")
+        subjects.save_json(path, groups)
+    else:
+        new = subjects.add_new_ids(groups, ids, tags)
+        if new:
+            report.note(f"{len(new)} new ids grouped: {', '.join(new[:20])}")
+            subjects.save_json(path, groups)
+    return groups
+
+
+def night(report: Report, dry_run: bool) -> None:
+    ids = subjects.read_ids(CONFIG / "implemented.txt")
+    tags = subjects.load_tags(TAGS)
+    if dry_run:
+        groups = subjects.load_json(STATE / "groups.json", None) or subjects.candidate_groups(ids, tags)
+        subjects.add_new_ids(groups, ids, tags)
+    else:
+        groups = load_groups(ids, tags, report, review=True)
+    order, warnings = subjects.order_subjects(groups, ids, subjects.read_priority(CONFIG / "priority.txt"))
+    for w in warnings:
+        report.warn(w)
+    preview = subjects.preview(groups, order)
+    if dry_run:
+        print(preview)
+        report.note(f"{len(ids)} ids -> {len(groups)} subjects")
+        return
+    (STATE / "subjects-preview.md").write_text(preview)
+
+    state = subjects.load_json(STATE / "subjects.json", {})
+    started, limit = 0, env_int("MAX_SUBJECTS_PER_NIGHT", 3)
+    try:
+        for name in order:
+            if started >= limit:
+                break
+            remaining = seconds_until_deadline()
+            if remaining < 600:
+                report.note("deadline reached, stopping")
+                break
+            if not subjects.selectable(name, state):
+                continue
+            if gitops.is_done(name):
+                continue
+            started += 1
+            budget = min(env_int("SUBJECT_TIMEOUT_MIN", 90) * 60, remaining)
+            run_subject(name, groups[name], budget, report, state)
+            subjects.save_json(STATE / "subjects.json", state)
+    except agents.UsageLimit as e:
+        report.warn(f"Claude usage limit reached, stopping: {str(e)[:300]}")
+    finally:
+        subjects.save_json(STATE / "subjects.json", state)
+    report.note(f"{started} subject(s) started, limit {limit}")
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    mode = ("preflight" if args.preflight else "dry-run" if args.dry_run
+            else "subject" if args.subject else "night")
+    report = Report(mode)
+    code = 0
+    try:
+        if args.dry_run:
+            night(report, dry_run=True)
+        else:
+            preflight(report)
+            if args.subject:
+                members = [subjects.short(m) for m in args.members.split(",") if m.strip()]
+                state = subjects.load_json(STATE / "subjects.json", {})
+                try:
+                    run_subject(args.subject, members, env_int("SUBJECT_TIMEOUT_MIN", 90) * 60, report, state)
+                except agents.UsageLimit as e:
+                    report.warn(f"Claude usage limit reached: {str(e)[:300]}")
+                subjects.save_json(STATE / "subjects.json", state)
+            elif args.night:
+                night(report, dry_run=False)
+        report.result = "ok"
+    except PreflightFailed as e:
+        report.result = f"preflight failed: {e}"
+        code = 2
+    except Exception as e:
+        report.result = f"crashed: {type(e).__name__}: {e}"
+        code = 1
+    finally:
+        if not args.dry_run:
+            print(f"report: {report.write(STATE)}", flush=True)
+    print(f"result: {report.result}", flush=True)
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

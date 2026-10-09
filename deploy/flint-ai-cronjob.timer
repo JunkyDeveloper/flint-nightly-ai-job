@@ -1,0 +1,11 @@
+[Unit]
+Description=Start flint-ai-cronjob between 03:00 and 04:00 (server local time)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=1h
+# A missed night is skipped, never started late in the morning.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

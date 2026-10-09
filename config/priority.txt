@@ -1,0 +1,4 @@
+# Subjects listed here are tested first, top to bottom.
+# One entry per line: a block/item id (minecraft:oak_door) or a subject name (doors).
+# The whole subject of a listed id moves up. Everything else follows in implemented.txt order.
+# Lines starting with '#' are comments. Unknown entries are reported and ignored.

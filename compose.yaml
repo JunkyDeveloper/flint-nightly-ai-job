@@ -1,0 +1,41 @@
+name: flint-ai-cronjob
+
+services:
+  minecraft:
+    image: itzg/minecraft-server:2026.9.2-java25
+    environment:
+      EULA: "TRUE"
+      TYPE: VANILLA
+      VERSION: "26.2"
+      ONLINE_MODE: "FALSE"
+      ENFORCE_SECURE_PROFILE: "FALSE"
+      OPS: flintmc_testbot
+      LEVEL_TYPE: FLAT
+      DIFFICULTY: peaceful
+      SEED: "flint"
+      SPAWN_PROTECTION: "0"
+      MEMORY: 3G
+      TZ: ${TZ:-UTC}
+    # No `ports:` on purpose: the offline-mode server is only reachable by the agent.
+    # World lives in the container's anonymous /data volume; `docker compose rm -fsv minecraft` wipes it.
+    healthcheck:
+      test: ["CMD", "mc-health"]
+      start_period: 5m
+      interval: 10s
+      retries: 30
+
+  agent:
+    build: .
+    image: flint-ai-cronjob-agent
+    network_mode: "service:minecraft"   # server is localhost:25565
+    depends_on:
+      minecraft:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      MC_VERSION: "26.2"
+      MC_SERVER: localhost:25565
+    volumes:
+      - ./config:/config:ro
+      - ./minecraft_26.2:/mc-src:ro
+      - ./state:/state
