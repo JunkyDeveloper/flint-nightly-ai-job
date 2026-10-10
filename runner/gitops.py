@@ -170,8 +170,8 @@ def pr_body(subject: str, summary: dict, files: list[str]) -> str:
         if rep in seen:
             continue
         seen.add(rep)
-        covers = ", ".join(c for t2 in tests if t2.get("representative") == rep
-                           for c in t2.get("covers", [])) or "—"
+        covers = ", ".join(dict.fromkeys(c for t2 in tests if t2.get("representative") == rep
+                                         for c in t2.get("covers", []) if c != rep)) or "—"
         blocks.append(f"- {rep} → implementation `{t.get('implementation', '?')}`; also covers: {covers}")
     cases = [f"- {t.get('case', t.get('file'))}" for t in tests] or [f"- `{f}`" for f in files]
     return "\n".join(["## Blocks", *(blocks or ["- (see test files)"]), "", "## Cases", *cases, "",

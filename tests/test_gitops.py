@@ -70,13 +70,13 @@ class PrTests(unittest.TestCase):
         {"file": "tests/b/oak.json", "representative": "minecraft:oak_button", "implementation": "ButtonBlock",
          "covers": ["minecraft:birch_button"], "case": "Pressing the button powers it for 30 ticks."},
         {"file": "tests/b/oak2.json", "representative": "minecraft:oak_button", "implementation": "ButtonBlock",
-         "covers": [], "case": "An arrow presses a wooden button."},
+         "covers": ["minecraft:birch_button"], "case": "An arrow presses a wooden button."},
         {"file": "tests/b/failed.json", "representative": "minecraft:stone_button", "implementation": "ButtonBlock",
          "covers": [], "case": "dropped"}]}
 
     def test_body_lists_blocks_and_only_passing_cases(self):
         body = gitops.pr_body("buttons", self.summary, ["tests/b/oak.json", "tests/b/oak2.json"])
-        self.assertIn("## Blocks\n- minecraft:oak_button → implementation `ButtonBlock`; also covers: minecraft:birch_button", body)
+        self.assertIn("## Blocks\n- minecraft:oak_button → implementation `ButtonBlock`; also covers: minecraft:birch_button\n", body)
         self.assertIn("- Pressing the button powers it for 30 ticks.", body)
         self.assertNotIn("dropped", body)
 
